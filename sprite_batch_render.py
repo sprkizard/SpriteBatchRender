@@ -46,9 +46,12 @@ import signal
 
 from bpy.props import *
 
+import mathutils
+from math import radians
+
 bl_info = \
     {
-        "name" : "Sprite Batch Render",
+        "name" : "Sprite Batch Render (for SRB2 2.x)",
         "author" : "Pekka Väänänen <pekka.vaananen@iki.fi>",
         "version" : (1, 3, 0),
         "blender" : (2, 80, 0),
@@ -67,20 +70,21 @@ class SpriteRenderSettings(bpy.types.PropertyGroup):
         description = """Where to save the sprite frames.\
  %s = frame name\
  %d = rotation number""",
-        default = "C:/temp/sprite%s%s.png"
+        default = "",
+        subtype = 'FILE_PATH'
     )
 
     steps: IntProperty (
         name = "Steps",
         description = "The number of different angles to render",
-        default = 8
+        default = 5
     )
 
     framenames: StringProperty (
         name = "Frame names",
         description = """The naming scheme for all frames.
  Each letter corresponds to a single frame.""",
-        default = "ABCDEFGHIJKLMN"
+        default = "ABCDEFGHIJKLMNOPQRSTUVWXYZ[+]^_`abcdefghijklmnopqrstuvwxyz{!}~"
     )
 
     anglenames: StringProperty (
@@ -93,8 +97,22 @@ class SpriteRenderSettings(bpy.types.PropertyGroup):
     target: StringProperty (
         name = "Target object",
         description = """The object to be rotated. Usually an Empty
-with the actual models as children.""",
+ with the actual models as children.""",
         default = ""
+    )
+
+    useFullRotation : BoolProperty(
+        name="Full Rotation",
+        description="""The object will rotate in all eight
+ directions.""",
+        default = False
+    )
+
+    actiondata : BoolProperty(
+        name="Action data",
+        description="""Blender will export individual Actions
+ of the selected object.""",
+        default = False
     )
 
 
@@ -159,6 +177,9 @@ class SpriteRenderOperator(bpy.types.Operator):
         orig_rotation = obj.rotation_euler.z
         done = False
 
+        useFullRotation = scene.sprite_render.useFullRotation
+        actiondata = scene.sprite_render.actiondata
+
         for f in range(startframe, endframe+1):
             scene.frame_current = f
             relative_frame = f - startframe
@@ -166,18 +187,39 @@ class SpriteRenderOperator(bpy.types.Operator):
             print()
 
             for i in range(0, steps):
-                angle = ((math.pi*2.0) / steps) * i
 
-                obj.rotation_euler.z = orig_rotation - angle
+                # We only need angles of 45 for this
+                angle = 45 * i
+
+                # Rotate the model 45d each
+                obj.rotation_euler.z = orig_rotation - radians(angle)
                 print (obj.rotation_euler.z)
 
-                scene.update()
+                bpy.context.view_layer.update()
                 bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
                 stepname = stepnames[i]
                 name = framenames[relative_frame]
 
-                scene.render.filepath = filepath % (name, stepname)
+                # Sprite Set Rotations
+                rotationset = ["{0}{1}", "{0}{1}{2}{3}", "{0}{1}{2}{3}", "{0}{1}{2}{3}", "{0}{1}"]
+
+                # Highlight our selections' action names if they are selected
+                action_name = bpy.context.object.animation_data.action.name if actiondata == True else 'noaction'
+                #print(str(action_name))
+
+                # Export render for full 8, or mirrored rotation
+                if (useFullRotation):
+                    sprite_full_rotation_name = str(rotationset[0]).format(name, stepname)
+                    print ("# Full Rotation Sprite name: " + (sprite_full_rotation_name) )
+
+                    scene.render.filepath = output_object_sprite(filepath, obj_name, sprite_full_rotation_name, actiondata, action_name)
+                else:
+                    sprite_half_rotation_name = str(rotationset[i]).format(name, stepname, name, 9-i)
+                    print ("# Half Rotation Sprite name: " + (sprite_half_rotation_name) )
+
+                    scene.render.filepath = output_object_sprite(filepath, obj_name, sprite_half_rotation_name, actiondata, action_name)
+
                 bpy.ops.render.render(animation=False, write_still=True)
 
                 #print ("%d:%s: %f,%f" % (f, stepname, camera.location.x, camera.location.y))
@@ -216,19 +258,23 @@ class SpriteRenderPanel(bpy.types.Panel):
             icon='ERROR')
 
         l.row().prop(props, "steps", text="Rotation steps")
-        l.column().prop(props, "framenames", text="Frame names")
+        #l.column().prop(props, "framenames", text="Frame names")
 
         frames = context.scene.frame_end - context.scene.frame_start
         if frames > len(props.framenames)-1:
             l.column().label(text = "Only {1} / {0} frame names given.".format(frames, len(props.framenames)-1), icon='ERROR')
 
-        l.column().prop(props, "anglenames", text="Step names")
+        #l.column().prop(props, "anglenames", text="Step names")
 
         if len(props.anglenames) < props.steps:
             l.column().label(text = "Need at least %d step names." % (props.steps),
             icon='ERROR')
 
         l.row().prop(props, "path", text="Path format")
+
+        l.row().prop(props, "useFullRotation", text="8 Directional")
+
+        l.row().prop(props, "actiondata", text="Use Action data")
         row = l.row()
 
         row.operator("render.spriterender_operator", text="Render Batch", icon='RENDER_ANIMATION')
@@ -247,6 +293,14 @@ def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.sprite_render
+
+
+# TODO: find a better way to join a final path together
+def output_object_sprite(path, objectname, rotationname, useaction=False, action=""):
+    if (useaction == True):
+        return path + str(objectname) + "/" + str(action) + "/" + str(objectname) + (rotationname) + ".png"
+    else:
+        return path + str(objectname) + "/" + str(objectname) + (rotationname) + ".png"
 
 
 if __name__ == "__main__":
