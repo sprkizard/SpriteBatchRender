@@ -51,9 +51,9 @@ from math import radians
 
 bl_info = \
     {
-        "name" : "Sprite Batch Render (for SRB2 2.x)",
+        "name" : "Sprite Batch Render (for SRB2 2.2.x)",
         "author" : "Pekka Väänänen <pekka.vaananen@iki.fi>",
-        "version" : (1, 3, 0),
+        "version" : (1, 3, 3),
         "blender" : (2, 80, 0),
         "location" : "Render",
         "description" :
@@ -63,6 +63,17 @@ bl_info = \
         "tracker_url" : "",
         "category" : "Render",
     }
+
+
+#TODO: A0 can not be output
+#TODO: errors when rendering with 5 steps and 8 directional is on and vice vers
+def propertylimiter_update(self, context):
+    if self.useFullRotation == True:
+        self.myproperty += " man!"
+    
+    print("My property is:", self.myproperty)
+
+
 
 class SpriteRenderSettings(bpy.types.PropertyGroup):
     path: StringProperty (
@@ -94,6 +105,13 @@ class SpriteRenderSettings(bpy.types.PropertyGroup):
         default = "12345678"
     )
 
+    anglenamessixteen: StringProperty (
+        name = "Step names (16)",
+        description = """The naming scheme for rotation steps.
+ Each letter corresponds to a single camera angle.""",
+        default = "192A3B4C5D6E7F8G"
+    )
+
     target: StringProperty (
         name = "Target object",
         description = """The object to be rotated. Usually an Empty
@@ -103,8 +121,8 @@ class SpriteRenderSettings(bpy.types.PropertyGroup):
 
     useFullRotation : BoolProperty(
         name="Full Rotation",
-        description="""The object will rotate in all eight
- directions.""",
+        description="""The object will rotate in all
+ directions. (8 or 16 Angles)""",
         default = False
     )
 
@@ -135,13 +153,32 @@ class SpriteRenderOperator(bpy.types.Operator):
 
         signal.signal(signal.SIGINT, handler)
 
+        # Try hacking in steps here
+        # TODO: lock Rotation steps selection to 5, 8, and 16 only
+        useFullRotation = context.scene.sprite_render.useFullRotation
+        steps = context.scene.sprite_render.steps
+        finalsteps = context.scene.sprite_render.steps
+        finalanglenames = context.scene.sprite_render.anglenames
+
+        # Turned on full rotation
+        if (useFullRotation  and steps == 8):
+            finalsteps = 8; # steps is set to 8
+        elif (useFullRotation and steps == 16):
+            finalsteps = 16; # steps is set to 16 (assign new naming)
+            finalanglenames = context.scene.sprite_render.anglenamessixteen
+        else:
+            # Hardcode 5, its not like srb2 will need another default
+            finalsteps = 5;
+            finalanglenames = context.scene.sprite_render.anglenames
+        #-----------
+
         self.render(
             context.scene,
             context.scene.sprite_render.target,
             context.scene.sprite_render.path,
-            context.scene.sprite_render.steps,
+            finalsteps,
             context.scene.sprite_render.framenames,
-            context.scene.sprite_render.anglenames,
+            finalanglenames,
             frame_start,
             frame_end
         )
@@ -186,12 +223,18 @@ class SpriteRenderOperator(bpy.types.Operator):
 
             print()
 
+            # Just set to 0 for below swap-outs
+            angle = 0
+
             for i in range(0, steps):
 
-                # We only need angles of 45 for this
-                angle = 45 * i
+                # We only need angles of 45 for this (unless we are doing full 16 (new))
+                if (steps == 16):
+                    angle = 22.5 * i
+                else:
+                    angle = 45 * i
 
-                # Rotate the model 45d each
+                # Rotate the model by the specified rotation angle type
                 obj.rotation_euler.z = orig_rotation - radians(angle)
                 print (obj.rotation_euler.z)
 
@@ -266,13 +309,16 @@ class SpriteRenderPanel(bpy.types.Panel):
 
         #l.column().prop(props, "anglenames", text="Step names")
 
-        if len(props.anglenames) < props.steps:
-            l.column().label(text = "Need at least %d step names." % (props.steps),
-            icon='ERROR')
+        # Comment this out for now, since max steps are hard coded into the script
+        # if len(props.anglenames) < props.steps:
+        #     l.column().label(text = "Need at least %d step names." % (props.steps),
+        #     icon='ERROR')
 
         l.row().prop(props, "path", text="Path format")
 
         l.row().prop(props, "useFullRotation", text="8 Directional")
+
+        l.row().prop(props, "useDoubleFullRotation", text="16 Directional")
 
         l.row().prop(props, "actiondata", text="Use Action data")
         row = l.row()
